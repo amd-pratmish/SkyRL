@@ -723,9 +723,9 @@ class SkyRLTrainBackend(AbstractBackend):
         if loss_fn == "cispo":
             cispo_config = dict(normalized_config.pop("cispo", {}))
             if clip_low_threshold is not None:
-                cispo_config["cispo_eps_clip_low"] = 1.0 - clip_low_threshold
+                cispo_config["cispo_eps_clip_low"] = clip_low_threshold
             if clip_high_threshold is not None:
-                cispo_config["cispo_eps_clip_high"] = clip_high_threshold - 1.0
+                cispo_config["cispo_eps_clip_high"] = clip_high_threshold
             if cispo_config:
                 normalized_config["cispo"] = cispo_config
             return "cispo", normalized_config or None
