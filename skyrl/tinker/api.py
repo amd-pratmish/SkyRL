@@ -1087,6 +1087,7 @@ async def asample(request: SampleRequest, req: Request, session: AsyncSession = 
         )
 
     base_model, model_path = await get_sampling_model(request, session)
+    forward_base_model = base_model
 
     if base_model:
         model_id = checkpoint_id = ""
@@ -1104,9 +1105,13 @@ async def asample(request: SampleRequest, req: Request, session: AsyncSession = 
                 status_code=400,
                 detail="model_path must be tinker://model_id/checkpoint_id or tinker://model_id/sampler_weights/checkpoint_id",
             )
-        await get_model(session, model_id)
+        model = await get_model(session, model_id)
         # Validate that the checkpoint exists and is ready
         await validate_checkpoint(req, model_id, checkpoint_id, types.CheckpointType.SAMPLER, session)
+        if req.app.state.external_inference_client:
+            lora_config = types.LoraConfig.model_validate(model.lora_config)
+            if lora_config.rank == 0:
+                forward_base_model = model.base_model
 
     request_id = await create_future(
         session=session,
@@ -1115,7 +1120,7 @@ async def asample(request: SampleRequest, req: Request, session: AsyncSession = 
         ),
         model_id=model_id,
         request_data=types.SampleInput(
-            base_model=base_model,
+            base_model=forward_base_model,
             prompt=request.prompt.to_types(),
             sampling_params=request.sampling_params.to_types(),
             num_samples=request.num_samples,
@@ -1131,7 +1136,7 @@ async def asample(request: SampleRequest, req: Request, session: AsyncSession = 
     if req.app.state.external_inference_client:
         asyncio.create_task(
             req.app.state.external_inference_client.call_and_store_result(
-                request_id, request, model_id, checkpoint_id, base_model=base_model
+                request_id, request, model_id, checkpoint_id, base_model=forward_base_model
             )
         )
 

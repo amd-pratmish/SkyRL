@@ -709,17 +709,28 @@ class SkyRLTrainBackend(AbstractBackend):
         if role == "critic":
             return loss_fn, loss_fn_config
 
-        if loss_fn != "ppo":
-            return loss_fn, loss_fn_config
-
         normalized_config = dict(loss_fn_config or {})
         clip_low_threshold = normalized_config.pop("clip_low_threshold", None)
         clip_high_threshold = normalized_config.pop("clip_high_threshold", None)
-        if clip_low_threshold is not None:
-            normalized_config["eps_clip_low"] = 1.0 - clip_low_threshold
-        if clip_high_threshold is not None:
-            normalized_config["eps_clip_high"] = clip_high_threshold - 1.0
-        return "regular", normalized_config or None
+
+        if loss_fn == "ppo":
+            if clip_low_threshold is not None:
+                normalized_config["eps_clip_low"] = 1.0 - clip_low_threshold
+            if clip_high_threshold is not None:
+                normalized_config["eps_clip_high"] = clip_high_threshold - 1.0
+            return "regular", normalized_config or None
+
+        if loss_fn == "cispo":
+            cispo_config = dict(normalized_config.pop("cispo", {}))
+            if clip_low_threshold is not None:
+                cispo_config["cispo_eps_clip_low"] = 1.0 - clip_low_threshold
+            if clip_high_threshold is not None:
+                cispo_config["cispo_eps_clip_high"] = clip_high_threshold - 1.0
+            if cispo_config:
+                normalized_config["cispo"] = cispo_config
+            return "cispo", normalized_config or None
+
+        return loss_fn, loss_fn_config
 
     def forward_backward(
         self,
