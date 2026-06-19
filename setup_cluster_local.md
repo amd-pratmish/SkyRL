@@ -13,7 +13,7 @@ apptainer pull /work1/grahamneubig/adityabs/vllm_vllm-openai-rocm_v0.20.2.sif do
 
 ## Install Dependencies
 ```bash
-cd /work1/grahamneubig/adityabs/skyrl_tinker/
+cd /work1/grahamneubig/adityabs/skyrl_tinker_amd/
 apptainer shell \
     --hostname "$(hostname -s)" \
     --bind "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem:/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem,/etc/pki/tls/certs:/etc/pki/tls/certs" \
