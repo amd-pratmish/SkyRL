@@ -58,6 +58,17 @@ except ImportError:
 VLLM_NEW_INFERENCE_WORKER_EXTENSION_CLS = f"{__name__}.NewInferenceWorkerWrap"
 
 
+def _empty_cuda_cache() -> None:
+    """Release unused CUDA/ROCm cached blocks after full-weight sync."""
+    if not torch.cuda.is_available():
+        return
+
+    device = torch.cuda.current_device()
+    torch.cuda.synchronize(device)
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize(device)
+
+
 class NewInferenceWorkerWrap:
     """
     vLLM worker extension for chunked weight sync (new inference path).
@@ -217,6 +228,7 @@ class NewInferenceWorkerWrap:
             )
 
         torch.accelerator.synchronize()
+        _empty_cuda_cache()
 
     def finish_weight_update(self) -> None:
         """
@@ -241,3 +253,4 @@ class NewInferenceWorkerWrap:
 
         self._skyrl_weight_update_active = False
         self._skyrl_is_checkpoint_format = True
+        _empty_cuda_cache()
