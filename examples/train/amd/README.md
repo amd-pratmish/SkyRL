@@ -94,7 +94,23 @@ The GRPO/CISPO client samples groups of responses, computes group-relative
 advantages from rule-based rewards, and trains a rank-32 LoRA policy with the
 public Tinker `cispo` loss. If `--data-dir` does not already contain
 `train.parquet` and `validation.parquet`, the client prepares a small GSM8K
-subset automatically under `/tmp/skyrl-tinker-grpo/gsm8k`.
+subset automatically under `/tmp/skyrl-tinker-grpo/gsm8k`. Prepared subsets are
+shuffled before truncation, and each training step samples a fresh random prompt
+batch from the loaded train pool.
+
+A larger run with Platoon-like batch shape:
+
+```bash
+TINKER_BASE_URL=http://localhost:9000 TINKER_API_KEY=tml-dummy \
+python grpo_client.py \
+  --max-train-steps 100 \
+  --num-prompts 64 \
+  --group-size 8 \
+  --max-tokens 512 \
+  --max-train-examples 1024 \
+  --max-val-examples 128 \
+  --reprepare-data
+```
 
 For a faster single-step smoke:
 
@@ -106,7 +122,8 @@ python grpo_client.py \
   --group-size 2 \
   --max-tokens 64 \
   --max-train-examples 32 \
-  --max-val-examples 8
+  --max-val-examples 8 \
+  --reprepare-data
 ```
 
 ## Multi-Node Note
@@ -124,5 +141,3 @@ Worker nodes:
 ```bash
 ray start --address="$HEAD_NODE_IP:6379"
 ```
-
-This example currently documents a single-node Tinker smoke test. Multi-node launch details should be added after validation on an AMD cluster.

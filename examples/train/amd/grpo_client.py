@@ -80,6 +80,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--max-train-examples", type=int, default=128)
     parser.add_argument("--max-val-examples", type=int, default=64)
+    parser.add_argument("--reprepare-data", action="store_true")
     parser.add_argument("--no-auto-prepare-data", action="store_true")
     return parser.parse_args()
 
@@ -128,7 +129,8 @@ def process_gsm8k_row(example: dict[str, Any], split: str, index: int) -> dict[s
     }
 
 
-def write_split(dataset: datasets.Dataset, path: Path, split: str, max_examples: int) -> None:
+def write_split(dataset: datasets.Dataset, path: Path, split: str, max_examples: int, seed: int) -> None:
+    dataset = dataset.shuffle(seed=seed)
     if max_examples > 0:
         dataset = dataset.select(range(min(max_examples, len(dataset))))
     processed = dataset.map(lambda example, idx: process_gsm8k_row(example, split, idx), with_indices=True)
@@ -140,7 +142,7 @@ def ensure_gsm8k_data(args: argparse.Namespace) -> tuple[Path, Path]:
     data_dir = Path(os.path.expanduser(args.data_dir))
     train_path = data_dir / "train.parquet"
     val_path = data_dir / "validation.parquet"
-    if train_path.exists() and val_path.exists():
+    if train_path.exists() and val_path.exists() and not args.reprepare_data:
         return train_path, val_path
 
     if args.no_auto_prepare_data:
@@ -151,8 +153,8 @@ def ensure_gsm8k_data(args: argparse.Namespace) -> tuple[Path, Path]:
     logger.info("Preparing GSM8K parquet data in %s", data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     dataset = datasets.load_dataset(GSM8K_SOURCE, GSM8K_CONFIG)
-    write_split(dataset["train"], train_path, "train", args.max_train_examples)
-    write_split(dataset["test"], val_path, "test", args.max_val_examples)
+    write_split(dataset["train"], train_path, "train", args.max_train_examples, seed=args.seed)
+    write_split(dataset["test"], val_path, "test", args.max_val_examples, seed=args.seed + 1)
     return train_path, val_path
 
 
@@ -187,6 +189,18 @@ def load_split(path: Path, tokenizer: Any, max_prompt_length: int, limit: int | 
         )
     logger.info("Loaded %s records from %s (filtered %s long prompts)", len(records), path, filtered)
     return records
+
+
+def sample_train_records(records: Sequence[GSM8KRecord], num_prompts: int, seed: int, step: int) -> list[GSM8KRecord]:
+    if num_prompts <= 0:
+        raise ValueError("--num-prompts must be positive")
+    if len(records) < num_prompts:
+        raise ValueError(
+            f"Requested {num_prompts} prompts, but only loaded {len(records)} records. "
+            "Increase --max-train-examples or lower --num-prompts."
+        )
+    rng = random.Random(seed + step * 1_000_003)
+    return rng.sample(list(records), num_prompts)
 
 
 def extract_answer(text: str) -> str | None:
@@ -391,19 +405,20 @@ def main() -> None:
         user_metadata={"example": "skyrl-amd-tinker-grpo-gsm8k"},
     )
     tokenizer = training_client.get_tokenizer()
-    train_records = load_split(train_path, tokenizer, args.max_prompt_length, limit=args.num_prompts)
-    val_records = load_split(val_path, tokenizer, args.max_prompt_length, limit=min(args.num_prompts, args.max_val_examples))
+    train_records = load_split(train_path, tokenizer, args.max_prompt_length, limit=args.max_train_examples)
+    val_records = load_split(val_path, tokenizer, args.max_prompt_length, limit=args.max_val_examples)
     if not train_records:
         raise RuntimeError("No train records were loaded")
 
     try:
         for step in range(1, args.max_train_steps + 1):
             step_start = time.time()
+            step_records = sample_train_records(train_records, args.num_prompts, args.seed, step)
             sampling_client = training_client.save_weights_and_get_sampling_client()
             trajectories, rollout_metrics = collect_rollouts(
                 sampling_client,
                 tokenizer,
-                train_records,
+                step_records,
                 args,
                 step,
             )
