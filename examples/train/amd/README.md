@@ -98,17 +98,20 @@ subset automatically under `/tmp/skyrl-tinker-grpo/gsm8k`. Prepared subsets are
 shuffled before truncation, and each training step samples a fresh random prompt
 batch from the loaded train pool.
 
-A larger run with Platoon-like batch shape:
+The default client run uses:
+
+- `--max-train-steps 5`
+- `--num-prompts 64`
+- `--group-size 8`
+- `--max-tokens 512`
+- `--max-train-examples 1024`
+- `--max-val-examples 128`
+
+To force regeneration of the shuffled GSM8K subset:
 
 ```bash
 TINKER_BASE_URL=http://localhost:9000 TINKER_API_KEY=tml-dummy \
 python grpo_client.py \
-  --max-train-steps 100 \
-  --num-prompts 64 \
-  --group-size 8 \
-  --max-tokens 512 \
-  --max-train-examples 1024 \
-  --max-val-examples 128 \
   --reprepare-data
 ```
 
