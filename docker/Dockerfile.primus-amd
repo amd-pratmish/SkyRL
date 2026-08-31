@@ -1,0 +1,75 @@
+# SkyRL + Primus Megatron exploration image for AMD Instinct GPUs.
+#
+# Build (on a machine with Docker/Podman and access to rocm/primus):
+#   docker build -f docker/Dockerfile.primus-amd -t skyrl-primus-amd .
+#
+# Run:
+#   docker run --rm -it --network host --ipc=host \
+#     --device=/dev/kfd --device=/dev/dri --group-add video \
+#     --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
+#     skyrl-primus-amd
+#
+# Then inside the container:
+#   bash integrations/primus_amd/run_smoke_test.sh
+
+ARG PRIMUS_IMAGE=rocm/primus:v26.4
+FROM ${PRIMUS_IMAGE}
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG RAY_VERSION=2.57.0
+ARG UV_VERSION=0.11.11
+ARG MCORE_REV=71e418ea7d7b3a6c9a53238c543c3e0b43e11026
+ARG BRIDGE_REV=91a15142a4b4442a8d46ab539d1b923bd08570d0
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ENV HF_HUB_ENABLE_HF_TRANSFER=1 \
+    PATH=/root/.local/bin:${PATH} \
+    RAY_RUNTIME_ENV_HOOK=ray._private.runtime_env.uv_runtime_env_hook.hook \
+    UV_PROJECT_ENVIRONMENT=/usr \
+    SKYRL_PRIMUS_EXPLORATION=1 \
+    NVTE_USE_ROCM=1 \
+    NVTE_USE_HIPBLASLT=1 \
+    MCORE_REV=${MCORE_REV} \
+    BRIDGE_REV=${BRIDGE_REV}
+
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        git \
+        iproute2 \
+        iputils-ping \
+        kmod \
+        libnuma-dev \
+        libxml2 \
+        net-tools \
+        netcat-openbsd \
+        openssh-server \
+        traceroute \
+        tzdata \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN if ! command -v uv >/dev/null 2>&1; then \
+        curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh; \
+    fi \
+    && uv --version
+
+# Ray for SkyRL orchestration. Primus image supplies ROCm torch / megatron-core / TE.
+RUN python -m pip install --no-cache-dir "ray[default]==${RAY_VERSION}" \
+    && python -m pip install --no-cache-dir orjson torchdata \
+    && python -m pip install --no-cache-dir boto3==1.43.0 botocore==1.43.0 s3transfer==0.17.1 \
+    && python -m pip install --no-cache-dir "pyOpenSSL<26" "cryptography<49,>=2.5" \
+    && python -m pip install --no-cache-dir --upgrade "importlib-metadata>=6.0,<8.8.0"
+
+WORKDIR /workspace/SkyRL
+COPY . /workspace/SkyRL
+
+# Approach A: SkyRL + megatron-bridge on ROCm (see integrations/primus_amd/README.md)
+RUN cp docker/pyproject.primus.toml pyproject.toml \
+    && bash integrations/primus_amd/approach_a_install.sh \
+    && python3 -c "import torch; from megatron.bridge import AutoBridge; import megatron.core as mc; print('torch', torch.__version__, 'hip', getattr(torch.version,'hip',None)); print('mcore', mc.__version__); print('AutoBridge', AutoBridge)"
+
+ENTRYPOINT []
+CMD ["/bin/bash"]

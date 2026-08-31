@@ -650,7 +650,16 @@ def prepare_runtime_environment(cfg: SkyRLTrainConfig) -> dict[str, str]:
         # TileLang default (works on Hopper); export FLA_TILELANG=0 on Blackwell (B200),
         # where the TileLang packed backward aborts, to fall back to the Triton kernels.
         env_vars["FLA_TILELANG"] = os.environ.get("FLA_TILELANG", "1")
-        if cfg.trainer.flash_attn:
+        # CUDA-only: disabling fused TE attention. On ROCm/HIP this breaks Megatron-Bridge
+        # model materialize (NVTE_FLASH_ATTN assertion). Skip on AMD.
+        _on_rocm = False
+        try:
+            import torch
+
+            _on_rocm = getattr(torch.version, "hip", None) is not None
+        except ImportError:
+            pass
+        if cfg.trainer.flash_attn and not _on_rocm:
             # disable fused attention for megatron with flash_attn
             # (otherwise flash_attn choice is overridden in TransformerEngine for Hopper+ devices)
             # https://github.com/NVIDIA/TransformerEngine/blob/release_v2.5/transformer_engine/pytorch/attention/dot_product_attention/utils.py#L916
