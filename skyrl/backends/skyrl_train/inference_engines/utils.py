@@ -6,7 +6,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import ray
 from omegaconf import DictConfig, ListConfig
-from ray.util.placement_group import PlacementGroupSchedulingStrategy
+try:
+    from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+except ImportError:
+    from ray.util.placement_group import PlacementGroupSchedulingStrategy
 
 from skyrl.backends.skyrl_train.inference_engines.inference_engine_client_http_endpoint import (
     ErrorInfo,

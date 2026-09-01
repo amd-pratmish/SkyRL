@@ -8,7 +8,11 @@ if TYPE_CHECKING:
     from skyrl.backends.skyrl_train.weight_sync.transfer_strategy import (
         WeightSyncInitInfo,
     )
-from ray.util.placement_group import PlacementGroupSchedulingStrategy, placement_group
+from ray.util.placement_group import placement_group
+try:
+    from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+except ImportError:
+    from ray.util.placement_group import PlacementGroupSchedulingStrategy
 
 from skyrl.backends.skyrl_train.inference_engines.base import (
     InferenceEngineInput,

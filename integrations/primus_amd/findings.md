@@ -1,84 +1,90 @@
-# Primus + SkyRL exploration findings
+# Primus + SkyRL AMD port findings
 
-## Run metadata
+## Status (2026-08-31)
 
-| Field | Value |
-|-------|-------|
-| Date | 2026-08-28 |
-| Host / cluster | RAD Vultr Slurm (`rad-vultr-mi355x-*`) |
-| GPU model | AMD Instinct **MI355X** |
-| Image | **`rocm/primus:v26.4`** (Python 3.12) |
-| SkyRL commit | NovaSky-AI/SkyRL clone under `/home/pratmish/SkyRL` |
+| Layer | Status | Notes |
+|-------|--------|-------|
+| Megatron-Bridge + mcore 0.19 on `rocm/primus:v26.4` | **PASS** | `approach_a_validate.sh` |
+| vLLM ROCm on same torch (2.12+rocm7.14) | **PASS (build)** | Build from vLLM `main` → wheel `0.9.2+rocm.rocm714`, 14 native `.so` |
+| SkyRL + Ray 2.57 import | **PASS** | Ray `PlacementGroupSchedulingStrategy` compat patch |
+| Full install (`approach_a_full_install.sh`) | **PASS** | Bridge + cached vLLM wheel + deps |
+| GRPO `main_base` launch | **PARTIAL** | Reaches Ray entrypoint + dataset prep; full train step not completed |
+
+**Use `rad-vultr-mi355x-*` nodes** — `rad-burst` / `lux-mi355x-*` showed mass `register fat binary failed` (ROCm ISA mismatch with Primus torch build).
 
 ---
 
-## ✅ Approach A: WORKING (2026-08-28)
+## Working install (Approach A + vLLM)
 
-SkyRL's existing **`trainer.strategy=megatron`** path can run on AMD via Megatron-Bridge with a custom install recipe — no new `primus` strategy required for the training backend itself.
-
-### Validated on MI355X
-
-| Step | Result |
-|------|--------|
-| megatron-core **0.19** (SkyRL git pin) | PASS |
-| megatron-bridge **0.6** (SkyRL git pin, `--no-deps`) | PASS |
-| nvidia-modelopt on ROCm | PASS |
-| `AutoBridge.from_hf_pretrained(Qwen/Qwen2.5-0.5B-Instruct)` | PASS |
-| `skyrl...megatron_worker` import | PASS |
-| `provide_distributed_model` on GPU (494M params) | PASS |
-
-Log: `integrations/primus_amd/reports/approach_a_validate2.log`
-
-### Install recipe (inside `rocm/primus:v26.4`)
+Inside **`rocm/primus:v26.4`** with SkyRL mounted at `/workspace/SkyRL`:
 
 ```bash
+# 1) Megatron-Bridge stack
 bash integrations/primus_amd/approach_a_install.sh
-# or full validation:
-bash integrations/primus_amd/run_approach_a_validate.sh
+
+# 2) vLLM — build once (or use cached wheel under .vllm_rocm_cache/wheels/)
+bash integrations/primus_amd/build_vllm_rocm.sh
+# Requires: VLLM_TARGET_DEVICE=rocm, PYTORCH_ROCM_ARCH=gfx950 (MI355X)
+
+# 3) Full stack + GSM8K deps
+bash integrations/primus_amd/approach_a_full_install.sh
 ```
 
-**Critical details:**
+### vLLM critical rules
 
-1. **Override Primus bundled Megatron-LM 0.16** — install megatron-core 0.19 from SkyRL's git pin; strip `Megatron-LM` from `PYTHONPATH`.
-2. **Install megatron-bridge with `--no-deps`** — avoids CUDA-only wheels (`mamba-ssm`, `flashinfer`).
-3. **Add `nvidia-modelopt`** — required by bridge `auto_bridge.py`.
-4. **Do not set `NVTE_FUSED_ATTN=0` on ROCm** — breaks model materialize; patched in `skyrl/train/utils/utils.py` for HIP.
-5. Use **`provider.attention_backend = "flash"`** (ROCm flash-attn) when materializing via bridge.
+1. **Never `pip install vllm`** from PyPI — pulls CUDA torch 2.13 and breaks Transformer Engine.
+2. **Build from vLLM `main`** against Primus ROCm torch (`build_vllm_rocm.sh`).
+3. Cached wheel: `integrations/primus_amd/.vllm_rocm_cache/wheels/vllm-0.9.2+rocm.rocm714-*.whl`
+4. Do not copy vLLM from `rocm/vllm-dev` — torch ABI mismatch (`vllm._C` undefined symbols).
 
-### Pins (match SkyRL `uv.lock`)
+### Megatron-Bridge pins
 
 | Package | Rev |
 |---------|-----|
 | megatron-core | `71e418ea7d7b3a6c9a53238c543c3e0b43e11026` |
 | megatron-bridge | `91a15142a4b4442a8d46ab539d1b923bd08570d0` |
 
-### Still open for full GRPO
+Install bridge with `--no-deps` + `nvidia-modelopt`. Strip `Megatron-LM` from `PYTHONPATH`.
 
-| Item | Status |
-|------|--------|
-| vLLM ROCm rollouts | Use `rocm/vllm-dev` or separate inference container |
-| Weight sync policy→vLLM | Not tested; use `weight_sync_backend=nccl`, not CUDA IPC |
-| Docker image build | `docker/Dockerfile.primus-amd` updated with Approach A install |
-| End-to-end GSM8K GRPO | Phase 2 — next |
+### SkyRL code patches (AMD)
+
+- `skyrl/train/utils/utils.py` — skip `NVTE_FUSED_ATTN=0` on HIP
+- Ray 2.57: import `PlacementGroupSchedulingStrategy` from `ray.util.scheduling_strategies` (4 files)
 
 ---
 
-## Earlier exploration (superseded)
+## Run full GRPO cycle
 
-<details>
-<summary>Legacy `primus:latest` (py3.10) results</summary>
+```bash
+# Prefer rad partition (vultr MI355X). 2 GPUs recommended for colocated megatron+ref+vLLM.
+SLURM_GPUS=2 SLURM_PARTITION=rad bash integrations/primus_amd/run_grpo_amd_cluster.sh
+```
 
-- 9/10 smoke checks; megatron-bridge missing; SkyRL cannot install (py3.10).
-- Megatron forward/backward via raw Megatron-Core: PASS.
+Log: `integrations/primus_amd/reports/grpo_amd_*.log`
 
-</details>
+**Env:** `HIP_VISIBLE_DEVICES` and `ROCR_VISIBLE_DEVICES` must match `SLURM_GPUS` (script sets `0` or `0,1`).
 
-## Decision
+---
 
-- [x] **Approach A works** — use existing `megatron_worker` + install recipe on `rocm/primus:v26.4`
-- [ ] Approach B (`trainer.strategy=primus`) — defer unless Approach A hits RL-loop blockers
+## Errors hit during port
 
-## Next action
+| Error | Fix |
+|-------|-----|
+| pip vllm upgrades torch → TE break | Build vLLM from source; pin torch |
+| Copied vllm-dev → `_C` ABI mismatch | Build on Primus torch |
+| `PlacementGroupSchedulingStrategy` import | Ray 2.57 scheduling_strategies path |
+| HIP vs ROCR device count mismatch | Set both from `SLURM_GPUS` in docker `-e` |
+| lux-mi355x `register fat binary failed` | Use `rad-vultr-mi355x` nodes |
 
-1. Build `skyrl-primus-amd` image on cluster (`bash integrations/primus_amd/build_image.sh`)
-2. Run minimal GRPO smoke with `trainer.strategy=megatron`, `weight_sync_backend=nccl`, vLLM on `rocm/vllm-dev`
+---
+
+## Next: complete one GRPO step on rad-vultr
+
+When `rad` partition has free MI355X nodes:
+
+```bash
+SLURM_GPUS=2 SLURM_PARTITION=rad SLURM_MEM=128G \
+  bash integrations/primus_amd/run_grpo_amd_cluster.sh
+```
+
+If OOM on 1 GPU colocate, keep `NUM_GPUS=2` or lower `gpu_memory_utilization` in `run_grpo_amd_megatron.sh`.

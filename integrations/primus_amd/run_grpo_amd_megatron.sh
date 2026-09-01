@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Minimal Megatron GRPO on AMD (GSM8K smoke). Run inside full-stack container or via run_grpo_amd_cluster.sh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
+
+: "${DATA_DIR:=$HOME/data/gsm8k_amd}"
+: "${NUM_GPUS:=2}"
+: "${MODEL_NAME:=Qwen/Qwen2.5-0.5B-Instruct}"
+: "${LOGGER:=console}"
+: "${MEGATRON_TP:=1}"
+: "${MEGATRON_PP:=1}"
+: "${NUM_ENGINES:=${NUM_GPUS}}"
+
+mkdir -p "$DATA_DIR" "$HOME/ckpts/gsm8k_megatron_amd" /tmp/skyrl-logs-amd
+
+echo "=== Preparing GSM8K (tiny subset) ==="
+python3 examples/train/gsm8k/gsm8k_dataset.py \
+  --output_dir "$DATA_DIR" \
+  --max_train_dataset_length 64
+
+export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
+export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+export _SKYRL_USE_NEW_INFERENCE=0
+export NVTE_USE_ROCM=1
+export NVTE_USE_HIPBLASLT=1
+export HF_HUB_ENABLE_HF_TRANSFER=1
+# Do not set NVTE_FUSED_ATTN=0 on ROCm
+
+echo "=== Starting Megatron GRPO on AMD (${NUM_GPUS} GPUs) ==="
+python3 -m skyrl.train.entrypoints.main_base \
+  data.train_data="['${DATA_DIR}/train.parquet']" \
+  data.val_data="['${DATA_DIR}/validation.parquet']" \
+  trainer.algorithm.advantage_estimator=grpo \
+  trainer.policy.model.path="${MODEL_NAME}" \
+  trainer.placement.colocate_all=true \
+  trainer.strategy=megatron \
+  trainer.placement.policy_num_gpus_per_node="${NUM_GPUS}" \
+  trainer.placement.ref_num_gpus_per_node="${NUM_GPUS}" \
+  trainer.placement.critic_num_gpus_per_node=0 \
+  generator.inference_engine.num_engines="${NUM_ENGINES}" \
+  generator.inference_engine.tensor_parallel_size=1 \
+  trainer.policy.megatron_config.tensor_model_parallel_size="${MEGATRON_TP}" \
+  trainer.policy.megatron_config.pipeline_model_parallel_size="${MEGATRON_PP}" \
+  trainer.ref.megatron_config.tensor_model_parallel_size="${MEGATRON_TP}" \
+  trainer.ref.megatron_config.pipeline_model_parallel_size="${MEGATRON_PP}" \
+  trainer.remove_microbatch_padding=true \
+  trainer.epochs=1 \
+  trainer.eval_batch_size=16 \
+  trainer.eval_before_train=false \
+  trainer.eval_interval=100 \
+  trainer.update_epochs_per_batch=1 \
+  trainer.train_batch_size=16 \
+  trainer.policy_mini_batch_size=8 \
+  trainer.micro_forward_batch_size_per_gpu=1 \
+  trainer.micro_train_batch_size_per_gpu=1 \
+  trainer.max_prompt_length=256 \
+  generator.sampling_params.max_generate_length=128 \
+  trainer.policy.optimizer_config.lr=1.0e-6 \
+  trainer.algorithm.use_kl_loss=true \
+  generator.inference_engine.backend=vllm \
+  generator.inference_engine.run_engines_locally=true \
+  generator.inference_engine.weight_sync_backend=nccl \
+  generator.inference_engine.async_engine=true \
+  generator.batched=true \
+  environment.env_class=gsm8k \
+  generator.n_samples_per_prompt=2 \
+  generator.inference_engine.gpu_memory_utilization=0.45 \
+  trainer.logger="${LOGGER}" \
+  trainer.project_name=gsm8k_megatron_amd \
+  trainer.run_name=amd_smoke \
+  trainer.resume_mode=null \
+  trainer.log_path=/tmp/skyrl-logs-amd \
+  trainer.ckpt_path="$HOME/ckpts/gsm8k_megatron_amd" \
+  trainer.flash_attn=true \
+  "$@"

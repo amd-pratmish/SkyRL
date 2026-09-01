@@ -15,10 +15,13 @@ import torch
 from loguru import logger
 from ray.util.placement_group import (
     PlacementGroup,
-    PlacementGroupSchedulingStrategy,
     placement_group,
     placement_group_table,
 )
+try:
+    from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+except ImportError:
+    from ray.util.placement_group import PlacementGroupSchedulingStrategy
 
 from skyrl.env_vars import (
     _SKYRL_USE_NEW_INFERENCE,
@@ -803,6 +806,19 @@ def configure_ray_worker_logging() -> None:
     logging.root.setLevel(level)
 
 
+def get_ray_init_num_gpus(cfg: SkyRLTrainConfig) -> int:
+    """GPU count for ray.init when auto-detection fails (common in ROCm Docker)."""
+    if os.environ.get("NUM_GPUS"):
+        return int(os.environ["NUM_GPUS"])
+    placement = cfg.trainer.placement
+    return max(
+        placement.policy_num_gpus_per_node * placement.policy_num_nodes,
+        placement.ref_num_gpus_per_node * placement.ref_num_nodes,
+        placement.critic_num_gpus_per_node * placement.critic_num_nodes,
+        1,
+    )
+
+
 def initialize_ray(cfg: SkyRLTrainConfig):
     """
     Initialize Ray cluster with prepared runtime environment.
@@ -833,7 +849,9 @@ def initialize_ray(cfg: SkyRLTrainConfig):
 
     # log_to_driver=True allows training progress from skyrl_entrypoint to reach stdout.
     # Infrastructure logs (vLLM, workers) are redirected to log file via os.dup2 in their init.
-    ray.init(runtime_env={"env_vars": env_vars}, log_to_driver=True)
+    num_gpus = get_ray_init_num_gpus(cfg)
+    ray.init(num_gpus=num_gpus, runtime_env={"env_vars": env_vars}, log_to_driver=True)
+    logger.info(f"Ray initialized with num_gpus={num_gpus}, resources={ray.cluster_resources()}")
 
     if not verbose_logging:
         logger.info(f"Infrastructure logs will be written to: {log_file}")
@@ -1007,7 +1025,7 @@ def peer_access_supported(max_num_gpus_per_node: int):
 
     if not torch.cuda.is_available():
         # we are on cpu head node, so we need to check P2P access on a node with 2 GPUs
-        ray.init()
+        ray.init(num_gpus=max_num_gpus_per_node)
         pg = placement_group([{"CPU": 1, "GPU": 2}], strategy="PACK")
         get_ray_pg_ready_with_timeout(pg, timeout=SKYRL_RAY_PG_TIMEOUT_IN_S)
         result = ray.get(
