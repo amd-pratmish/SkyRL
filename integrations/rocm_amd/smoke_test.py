@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""Phase-0/1 compatibility smoke test for SkyRL Megatron on AMD via Primus.
+"""Compatibility smoke test for SkyRL Megatron on AMD ROCm GPUs.
 
-Run inside the skyrl-primus-amd container on an MI300X/MI325X/MI355X node:
+Run inside a ROCm container with GPUs (e.g. rocm/primus:v26.4):
 
-    python integrations/primus_amd/smoke_test.py
-    python integrations/primus_amd/smoke_test.py --phase bridge --model Qwen/Qwen2.5-0.5B-Instruct
-    python integrations/primus_amd/smoke_test.py --all
-
-Exit code 0 = all requested checks passed; non-zero = at least one failure.
-Results are printed as JSON-friendly lines and optionally written to --report.
+    python integrations/rocm_amd/smoke_test.py --all
+    python integrations/rocm_amd/smoke_test.py --phase bridge --model Qwen/Qwen2.5-0.5B-Instruct
 """
 
 from __future__ import annotations
@@ -17,19 +13,16 @@ import argparse
 import importlib
 import json
 import os
-import subprocess
 import sys
 import traceback
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-# Primus containers ship Megatron-LM as source under /workspace.
+# Some ROCm base images ship legacy Megatron-LM on PYTHONPATH.
 def _bootstrap_megatron_paths() -> None:
     candidates = [
         "/workspace/Megatron-LM",
-        "/workspace/Primus/third_party/Megatron-LM",
-        "/workspace/Primus",
     ]
     for path in candidates:
         if os.path.isdir(path) and path not in sys.path:
@@ -105,25 +98,8 @@ def phase_env(report: SmokeReport) -> None:
 
         return True, f"ray={ray.__version__}"
 
-    def primus_cli() -> tuple[bool, str]:
-        if os.path.exists("/workspace/Primus/runner/primus-cli"):
-            return True, "/workspace/Primus/runner/primus-cli"
-        for cmd in (
-            ["primus-cli", "--help"],
-            ["bash", "runner/primus-cli", "direct", "--help"],
-            ["bash", "/workspace/Primus/runner/primus-cli", "direct", "--help"],
-        ):
-            try:
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
-                if proc.returncode == 0:
-                    return True, f"found {' '.join(cmd[:2])}"
-            except FileNotFoundError:
-                continue
-        return False, "primus-cli not found on PATH (may still be ok if megatron-core is present)"
-
     _run_check(report, "env", "torch_rocm", torch_hip)
     _run_check(report, "env", "ray", ray)
-    _run_check(report, "env", "primus_cli", primus_cli)
 
 
 def phase_megatron_core(report: SmokeReport) -> None:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quick vLLM LLM init smoke inside Primus container (sync engine, no Ray).
+# Quick vLLM LLM init smoke inside a ROCm container (sync engine, no Ray).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"

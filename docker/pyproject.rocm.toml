@@ -1,11 +1,8 @@
-# SkyRL dependency view for Primus + Megatron on AMD ROCm.
+# SkyRL dependency overlay for ROCm Megatron training on AMD GPUs.
 #
-# Used by docker/Dockerfile.primus-amd. The parent rocm/primus image already
-# ships ROCm PyTorch, Transformer Engine, flash-attn, megatron-core, and RCCL.
-# This file installs SkyRL runtime deps without pulling NVIDIA CUDA packages.
-#
-# Megatron-Bridge is intentionally omitted until we validate it on ROCm; the
-# smoke test in integrations/primus_amd/ checks whether it can be added.
+# Used by docker/Dockerfile.rocm-megatron. The base image (e.g. rocm/primus:v26.4)
+# should already provide ROCm PyTorch, Transformer Engine, and RCCL.
+# Megatron-Bridge is installed via integrations/rocm_amd/install_megatron_bridge.sh.
 
 [build-system]
 requires = ["setuptools"]
@@ -76,21 +73,18 @@ skyrl-train = [
     "setuptools",
 ]
 
-# FSDP path (vLLM ROCm from parent image when using Dockerfile.amd).
 fsdp = [
     "skyrl[skyrl-train]",
 ]
 
-# Megatron on Primus/ROCm: install megatron-core 0.19 + megatron-bridge via approach_a_install.sh
-primus-megatron = [
+# Megatron on ROCm: install megatron-core + megatron-bridge via install_megatron_bridge.sh
+rocm-megatron = [
     "skyrl[skyrl-train]",
     "flash-linear-attention; sys_platform == 'linux'",
 ]
 
-# Full Approach A (Megatron-Bridge path on AMD): use integrations/primus_amd/approach_a_install.sh
-# inside rocm/primus:v26.4 — pins megatron-core and megatron-bridge from git, not PyPI CUDA wheels.
-primus-megatron-bridge = [
-    "skyrl[primus-megatron]",
+rocm-megatron-bridge = [
+    "skyrl[rocm-megatron]",
 ]
 
 [tool.setuptools]

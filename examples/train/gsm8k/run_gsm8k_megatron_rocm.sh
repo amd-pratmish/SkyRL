@@ -1,23 +1,31 @@
 #!/usr/bin/env bash
-# Minimal Megatron GRPO on AMD (GSM8K smoke). Run inside full-stack container or via run_grpo_amd_cluster.sh
-set -euo pipefail
+# Colocated Megatron GRPO on AMD GPUs (GSM8K smoke).
+#
+# Prerequisites (inside ROCm container):
+#   bash integrations/rocm_amd/install_full_stack.sh
+#
+# Or from the host:
+#   bash integrations/rocm_amd/run_in_container.sh bash examples/train/gsm8k/run_gsm8k_megatron_rocm.sh
+set -x
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
 
-: "${DATA_DIR:=$HOME/data/gsm8k_amd}"
+: "${DATA_DIR:=$HOME/data/gsm8k_rocm}"
 : "${NUM_GPUS:=2}"
 : "${MODEL_NAME:=Qwen/Qwen2.5-0.5B-Instruct}"
 : "${LOGGER:=console}"
 : "${MEGATRON_TP:=1}"
 : "${MEGATRON_PP:=1}"
 : "${NUM_ENGINES:=${NUM_GPUS}}"
+: "${LOG_DIR:=/tmp/skyrl-logs-rocm}"
+: "${CKPT_DIR:=$HOME/ckpts/gsm8k_megatron_rocm}"
 
-mkdir -p "$DATA_DIR" "$HOME/ckpts/gsm8k_megatron_amd" /tmp/skyrl-logs-amd
+mkdir -p "$DATA_DIR" "$CKPT_DIR" "$LOG_DIR"
 
 echo "=== Ray + vLLM preflight ==="
-bash integrations/primus_amd/ray_amd_preflight.sh
-python3 integrations/primus_amd/verify_vllm_skyrl_compat.py
+bash integrations/rocm_amd/ray_preflight.sh
+python3 integrations/rocm_amd/verify_vllm_skyrl_compat.py
 
 echo "=== Preparing GSM8K (tiny subset) ==="
 python3 examples/train/gsm8k/gsm8k_dataset.py \
@@ -29,13 +37,12 @@ export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
 export _SKYRL_USE_NEW_INFERENCE=0
 export NVTE_USE_ROCM=1
 export NVTE_USE_HIPBLASLT=1
-export HF_HUB_ENABLE_HF_TRANSFER=1
 export VLLM_TARGET_DEVICE=rocm
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
 export VLLM_USE_V1=0
 unset CUDA_VISIBLE_DEVICES
 
-echo "=== Starting Megatron GRPO on AMD (${NUM_GPUS} GPUs) ==="
+echo "=== Starting Megatron GRPO on ROCm (${NUM_GPUS} GPUs) ==="
 python3 -m skyrl.train.entrypoints.main_base \
   data.train_data="['${DATA_DIR}/train.parquet']" \
   data.val_data="['${DATA_DIR}/validation.parquet']" \
@@ -76,10 +83,10 @@ python3 -m skyrl.train.entrypoints.main_base \
   generator.inference_engine.gpu_memory_utilization=0.35 \
   generator.inference_engine.enforce_eager=true \
   trainer.logger="${LOGGER}" \
-  trainer.project_name=gsm8k_megatron_amd \
-  trainer.run_name=amd_smoke \
+  trainer.project_name=gsm8k_megatron_rocm \
+  trainer.run_name=rocm_smoke \
   trainer.resume_mode=null \
-  trainer.log_path=/tmp/skyrl-logs-amd \
-  trainer.ckpt_path="$HOME/ckpts/gsm8k_megatron_amd" \
+  trainer.log_path="${LOG_DIR}" \
+  trainer.ckpt_path="${CKPT_DIR}" \
   trainer.flash_attn=true \
   "$@"

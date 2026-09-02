@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build vLLM from source against the Primus ROCm PyTorch (do NOT pip install vllm — it pulls CUDA torch).
+# Build vLLM from source against the container's ROCm PyTorch (do NOT pip install vllm — it pulls CUDA torch).
 set -euo pipefail
 
 # SkyRL pins vllm==0.20.2 API; build vLLM main (v0.20.2 tag fails GPTQ compile on ROCm 7.14).
@@ -7,8 +7,8 @@ VLLM_TAG="${VLLM_TAG:-main}"
 VLLM_SRC="${VLLM_SRC:-/tmp/vllm-rocm-build-${VLLM_TAG}}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKYRL_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-VERIFY_PY="${SKYRL_ROOT}/integrations/primus_amd/verify_vllm_skyrl_compat.py"
-CACHE_WHEEL_DIR="${SKYRL_ROOT}/integrations/primus_amd/.vllm_rocm_cache/wheels"
+VERIFY_PY="${SKYRL_ROOT}/integrations/rocm_amd/verify_vllm_skyrl_compat.py"
+CACHE_WHEEL_DIR="${SKYRL_ROOT}/integrations/rocm_amd/.vllm_rocm_cache/wheels"
 
 TORCH_VER="$(python3 -c 'import torch; print(torch.__version__)')"
 echo "Building vLLM ${VLLM_TAG} for torch ${TORCH_VER}"

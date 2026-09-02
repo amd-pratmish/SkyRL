@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
+# Validate Megatron-Bridge + megatron_worker on ROCm (single GPU).
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKYRL_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 MODEL="${1:-Qwen/Qwen2.5-0.5B-Instruct}"
-MCORE_REV="${MCORE_REV:-71e418ea7d7b3a6c9a53238c543c3e0b43e11026}"
-BRIDGE_REV="${BRIDGE_REV:-91a15142a4b4442a8d46ab539d1b923bd08570d0}"
 
 export PYTHONPATH="$(python3 - <<'PY'
 import os
@@ -10,21 +12,9 @@ print(":".join(p for p in os.environ.get("PYTHONPATH","").split(":") if p and "M
 PY
 )"
 
-install_stack() {
-  python3 -m pip install -q --no-cache-dir --no-deps --force-reinstall \
-    "megatron-core @ git+https://github.com/NVIDIA/Megatron-LM@${MCORE_REV}"
-  python3 -m pip install -q --no-cache-dir nvidia-modelopt \
-    "transformers>=5.8.1,<5.9.0" peft accelerate datasets omegaconf hydra-core einops rich wandb
-  python3 -m pip install -q --no-cache-dir --no-deps \
-    "megatron-bridge @ git+https://github.com/NVIDIA-NeMo/Megatron-Bridge@${BRIDGE_REV}"
-  cp docker/pyproject.primus.toml pyproject.toml
-  python3 -m pip install -q --no-cache-dir -e ".[primus-megatron]" || true
-}
+bash "${SCRIPT_DIR}/install_megatron_bridge.sh"
 
-echo "=== Approach A validate ==="
-install_stack
-
-python3 -c "import megatron.core as mc; import megatron.core._rank_utils as ru; print('mcore', mc.__version__, mc.__file__); assert hasattr(ru,'safe_get_world_size')"
+python3 -c "import megatron.core as mc; import megatron.core._rank_utils as ru; print('mcore', mc.__version__); assert hasattr(ru,'safe_get_world_size')"
 
 python3 - <<'PY'
 from megatron.bridge import AutoBridge
@@ -73,4 +63,4 @@ print("PASS: provide_distributed_model", len(models))
 dist.destroy_process_group()
 PY
 
-echo "=== ALL Approach A validation steps PASSED ==="
+echo "=== Megatron-Bridge ROCm validation PASSED ==="

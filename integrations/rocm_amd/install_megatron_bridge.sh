@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Install SkyRL Approach A stack inside rocm/primus:v26.4 (Megatron-Bridge + SkyRL megatron_worker).
+# Install Megatron-Bridge + megatron-core 0.19 and SkyRL on ROCm (inside rocm/primus or skyrl-rocm-megatron image).
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKYRL_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 MCORE_REV="${MCORE_REV:-71e418ea7d7b3a6c9a53238c543c3e0b43e11026}"
 BRIDGE_REV="${BRIDGE_REV:-91a15142a4b4442a8d46ab539d1b923bd08570d0}"
 
-# Primus ships Megatron-LM 0.16 on PYTHONPATH; SkyRL needs megatron-core 0.19 from git.
+# Some ROCm images ship legacy Megatron-LM on PYTHONPATH; SkyRL needs megatron-core 0.19 from git.
 export PYTHONPATH="$(python3 - <<'PY'
 import os
 print(":".join(p for p in os.environ.get("PYTHONPATH", "").split(":") if p and "Megatron-LM" not in p))
@@ -14,7 +17,7 @@ PY
 
 export NVTE_USE_ROCM="${NVTE_USE_ROCM:-1}"
 export NVTE_USE_HIPBLASLT="${NVTE_USE_HIPBLASLT:-1}"
-# Do not set NVTE_FUSED_ATTN/NVTE_FLASH_ATTN=0 on ROCm — breaks bridge materialize.
+# Do not set NVTE_FUSED_ATTN=0 on ROCm — breaks Megatron-Bridge model materialize.
 
 echo "Installing megatron-core @ ${MCORE_REV}"
 python3 -m pip install --no-cache-dir --no-deps --force-reinstall \
@@ -37,26 +40,23 @@ echo "Installing megatron-bridge @ ${BRIDGE_REV} (--no-deps)"
 python3 -m pip install --no-cache-dir --no-deps \
   "megatron-bridge @ git+https://github.com/NVIDIA-NeMo/Megatron-Bridge@${BRIDGE_REV}"
 
-install_skyrl_prim_us() {
-  local skyrl_root="$1"
-  cd "${skyrl_root}"
+install_skyrl_rocm() {
+  local root="$1"
+  cd "${root}"
   local restore_pyproject=0
-  if [ -f pyproject.toml ] && ! cmp -s pyproject.toml docker/pyproject.primus.toml; then
+  if [ -f pyproject.toml ] && ! cmp -s pyproject.toml docker/pyproject.rocm.toml; then
     cp pyproject.toml pyproject.toml.skyrl.bak
     restore_pyproject=1
   fi
-  cp docker/pyproject.primus.toml pyproject.toml
+  cp docker/pyproject.rocm.toml pyproject.toml
   python3 -m pip install --no-cache-dir --force-reinstall "ray[default]==2.57.0"
-  python3 -m pip install --no-cache-dir -e ".[primus-megatron]"
-  # Bridge requires transformers>=5.8.1; pyproject.primus.toml caps at 5.8.0.
+  python3 -m pip install --no-cache-dir -e ".[rocm-megatron]"
   python3 -m pip install --no-cache-dir "transformers>=5.8.1,<5.9.0" -q
   if [ "${restore_pyproject}" -eq 1 ]; then
     mv pyproject.toml.skyrl.bak pyproject.toml
   fi
 }
 
-if [ -d /workspace/SkyRL ]; then
-  install_skyrl_prim_us /workspace/SkyRL
-fi
+install_skyrl_rocm "${SKYRL_ROOT}"
 
 python3 -c "from megatron.bridge import AutoBridge; import megatron.core as mc; print('OK bridge+mcore', mc.__version__)"

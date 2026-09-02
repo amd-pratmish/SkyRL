@@ -1,19 +1,16 @@
-# SkyRL + Primus Megatron exploration image for AMD Instinct GPUs.
+# SkyRL + Megatron-Bridge on AMD ROCm GPUs.
 #
-# Build (on a machine with Docker/Podman and access to rocm/primus):
-#   docker build -f docker/Dockerfile.primus-amd -t skyrl-primus-amd .
+# Build:
+#   docker build -f docker/Dockerfile.rocm-megatron -t skyrl-rocm-megatron .
 #
-# Run:
+# Run (bind-mount this repo for development):
 #   docker run --rm -it --network host --ipc=host \
 #     --device=/dev/kfd --device=/dev/dri --group-add video \
-#     --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
-#     skyrl-primus-amd
-#
-# Then inside the container:
-#   bash integrations/primus_amd/run_smoke_test.sh
+#     -v "$(pwd):/workspace/SkyRL" -w /workspace/SkyRL \
+#     skyrl-rocm-megatron
 
-ARG PRIMUS_IMAGE=rocm/primus:v26.4
-FROM ${PRIMUS_IMAGE}
+ARG ROCM_BASE_IMAGE=rocm/primus:v26.4
+FROM ${ROCM_BASE_IMAGE}
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG RAY_VERSION=2.57.0
@@ -27,7 +24,6 @@ ENV HF_HUB_ENABLE_HF_TRANSFER=1 \
     PATH=/root/.local/bin:${PATH} \
     RAY_RUNTIME_ENV_HOOK=ray._private.runtime_env.uv_runtime_env_hook.hook \
     UV_PROJECT_ENVIRONMENT=/usr \
-    SKYRL_PRIMUS_EXPLORATION=1 \
     NVTE_USE_ROCM=1 \
     NVTE_USE_HIPBLASLT=1 \
     MCORE_REV=${MCORE_REV} \
@@ -56,7 +52,6 @@ RUN if ! command -v uv >/dev/null 2>&1; then \
     fi \
     && uv --version
 
-# Ray for SkyRL orchestration. Primus image supplies ROCm torch / megatron-core / TE.
 RUN python -m pip install --no-cache-dir "ray[default]==${RAY_VERSION}" \
     && python -m pip install --no-cache-dir orjson torchdata \
     && python -m pip install --no-cache-dir boto3==1.43.0 botocore==1.43.0 s3transfer==0.17.1 \
@@ -66,9 +61,8 @@ RUN python -m pip install --no-cache-dir "ray[default]==${RAY_VERSION}" \
 WORKDIR /workspace/SkyRL
 COPY . /workspace/SkyRL
 
-# Approach A: SkyRL + megatron-bridge on ROCm (see integrations/primus_amd/README.md)
-RUN cp docker/pyproject.primus.toml pyproject.toml \
-    && bash integrations/primus_amd/approach_a_install.sh \
+RUN cp docker/pyproject.rocm.toml pyproject.toml \
+    && bash integrations/rocm_amd/install_megatron_bridge.sh \
     && python3 -c "import torch; from megatron.bridge import AutoBridge; import megatron.core as mc; print('torch', torch.__version__, 'hip', getattr(torch.version,'hip',None)); print('mcore', mc.__version__); print('AutoBridge', AutoBridge)"
 
 ENTRYPOINT []
