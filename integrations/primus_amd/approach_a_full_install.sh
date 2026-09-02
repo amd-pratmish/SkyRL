@@ -5,10 +5,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bash "${SCRIPT_DIR}/approach_a_install.sh"
 
-echo "--- install vLLM (ROCm) ---"
+echo "--- install vLLM (ROCm, SkyRL 0.20.x API) ---"
 WHEEL_CACHE="/workspace/SkyRL/integrations/primus_amd/.vllm_rocm_cache/wheels"
-if compgen -G "${WHEEL_CACHE}/vllm-*.whl" >/dev/null; then
-  WHEEL="$(ls -1 "${WHEEL_CACHE}"/vllm-*.whl | tail -1)"
+WHEEL=""
+if compgen -G "${WHEEL_CACHE}/vllm-0.20*.whl" >/dev/null; then
+  WHEEL="$(ls -1t "${WHEEL_CACHE}"/vllm-0.20*.whl | head -1)"
+elif compgen -G "${WHEEL_CACHE}/vllm-*.whl" >/dev/null; then
+  WHEEL="$(ls -1t "${WHEEL_CACHE}"/vllm-*.whl | head -1)"
+fi
+
+if [ -n "${WHEEL}" ]; then
   echo "Using cached wheel ${WHEEL}"
   python3 -m pip install --no-cache-dir --force-reinstall --no-deps "${WHEEL}"
   python3 -m pip install --no-cache-dir -q \
@@ -19,10 +25,12 @@ if compgen -G "${WHEEL_CACHE}/vllm-*.whl" >/dev/null; then
     opentelemetry-exporter-otlp opentelemetry-semantic-conventions-ai model-hosting-container-standards \
     anthropic grpcio-reflection timm tensorizer pytest-asyncio \
     "transformers>=5.5.3" "numba==0.65.0" 2>/dev/null || true
-elif ! python3 -c "import vllm" 2>/dev/null; then
+  python3 -m pip install --no-cache-dir -q amdsmi 2>/dev/null || true
+  python3 integrations/primus_amd/verify_vllm_skyrl_compat.py
+elif ! python3 integrations/primus_amd/verify_vllm_skyrl_compat.py 2>/dev/null; then
   bash "${SCRIPT_DIR}/build_vllm_rocm.sh"
 else
-  python3 -c "import vllm; print('vllm', vllm.__version__, '(preinstalled)')"
+  python3 integrations/primus_amd/verify_vllm_skyrl_compat.py
 fi
 
 echo "--- install skyrl-gym deps for gsm8k ---"
@@ -30,6 +38,9 @@ python3 -m pip install --no-cache-dir -q datasets 2>/dev/null || true
 
 echo "--- ensure Ray 2.57 (SkyRL pin; vLLM deps must not downgrade) ---"
 python3 -m pip install --no-cache-dir --force-reinstall "ray[default]==2.57.0"
+
+echo "--- re-pin transformers for SkyRL after vLLM deps ---"
+python3 -m pip install --no-cache-dir --force-reinstall "transformers>=5.6.1,<=5.8.0"
 
 echo "--- verify Ray scheduling API ---"
 python3 -c "
@@ -49,3 +60,4 @@ print('AutoBridge', AutoBridge)
 import importlib.util
 print('vllm', bool(importlib.util.find_spec('vllm')))
 "
+python3 integrations/primus_amd/verify_vllm_skyrl_compat.py

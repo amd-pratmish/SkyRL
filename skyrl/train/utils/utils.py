@@ -667,6 +667,18 @@ def prepare_runtime_environment(cfg: SkyRLTrainConfig) -> dict[str, str]:
             # (otherwise flash_attn choice is overridden in TransformerEngine for Hopper+ devices)
             # https://github.com/NVIDIA/TransformerEngine/blob/release_v2.5/transformer_engine/pytorch/attention/dot_product_attention/utils.py#L916
             env_vars["NVTE_FUSED_ATTN"] = "0"
+        if _on_rocm:
+            env_vars.setdefault("NVTE_USE_ROCM", "1")
+            env_vars.setdefault("NVTE_USE_HIPBLASLT", "1")
+
+    try:
+        import torch as _torch
+
+        if getattr(_torch.version, "hip", None) is not None:
+            env_vars.setdefault("VLLM_TARGET_DEVICE", "rocm")
+            env_vars.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+    except ImportError:
+        pass
 
     if cfg.generator.inference_engine.backend == "vllm":
         env_vars["VLLM_ALLOW_RUNTIME_LORA_UPDATING"] = "true"
@@ -684,11 +696,25 @@ def prepare_runtime_environment(cfg: SkyRLTrainConfig) -> dict[str, str]:
         env_vars["VLLM_DISABLE_COMPILE_CACHE"] = "1"
 
         if not os.environ.get("VLLM_USE_V1", False):
-            logger.info(
-                "`VLLM_USE_V1` is not specified, setting `VLLM_USE_V1` to 1. To override, set `VLLM_USE_V1` explicitly"
-            )
-            env_vars["VLLM_USE_V1"] = "1"
-            env_vars["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
+            _on_rocm_vllm = False
+            try:
+                import torch as _torch_vllm
+
+                _on_rocm_vllm = getattr(_torch_vllm.version, "hip", None) is not None
+            except ImportError:
+                pass
+            if _on_rocm_vllm:
+                logger.info(
+                    "ROCm: `VLLM_USE_V1` is not specified, setting `VLLM_USE_V1` to 0 "
+                    "(v1 multiprocess engine core is unstable on ROCm in colocated GRPO)."
+                )
+                env_vars["VLLM_USE_V1"] = "0"
+            else:
+                logger.info(
+                    "`VLLM_USE_V1` is not specified, setting `VLLM_USE_V1` to 1. To override, set `VLLM_USE_V1` explicitly"
+                )
+                env_vars["VLLM_USE_V1"] = "1"
+                env_vars["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
 
         if os.environ.get("VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS"):
             logger.info(

@@ -15,6 +15,10 @@ cd "$ROOT"
 
 mkdir -p "$DATA_DIR" "$HOME/ckpts/gsm8k_megatron_amd" /tmp/skyrl-logs-amd
 
+echo "=== Ray + vLLM preflight ==="
+bash integrations/primus_amd/ray_amd_preflight.sh
+python3 integrations/primus_amd/verify_vllm_skyrl_compat.py
+
 echo "=== Preparing GSM8K (tiny subset) ==="
 python3 examples/train/gsm8k/gsm8k_dataset.py \
   --output_dir "$DATA_DIR" \
@@ -26,7 +30,10 @@ export _SKYRL_USE_NEW_INFERENCE=0
 export NVTE_USE_ROCM=1
 export NVTE_USE_HIPBLASLT=1
 export HF_HUB_ENABLE_HF_TRANSFER=1
-# Do not set NVTE_FUSED_ATTN=0 on ROCm
+export VLLM_TARGET_DEVICE=rocm
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+export VLLM_USE_V1=0
+unset CUDA_VISIBLE_DEVICES
 
 echo "=== Starting Megatron GRPO on AMD (${NUM_GPUS} GPUs) ==="
 python3 -m skyrl.train.entrypoints.main_base \
@@ -62,11 +69,12 @@ python3 -m skyrl.train.entrypoints.main_base \
   generator.inference_engine.backend=vllm \
   generator.inference_engine.run_engines_locally=true \
   generator.inference_engine.weight_sync_backend=nccl \
-  generator.inference_engine.async_engine=true \
+  generator.inference_engine.async_engine=false \
   generator.batched=true \
   environment.env_class=gsm8k \
   generator.n_samples_per_prompt=2 \
-  generator.inference_engine.gpu_memory_utilization=0.45 \
+  generator.inference_engine.gpu_memory_utilization=0.35 \
+  generator.inference_engine.enforce_eager=true \
   trainer.logger="${LOGGER}" \
   trainer.project_name=gsm8k_megatron_amd \
   trainer.run_name=amd_smoke \
