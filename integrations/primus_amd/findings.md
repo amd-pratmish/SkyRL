@@ -95,6 +95,13 @@ Log: `integrations/primus_amd/reports/grpo_amd_*.log`
 
 ---
 
+## Related docs
+
+| File | Contents |
+|------|----------|
+| **[WORKFLOW.md](WORKFLOW.md)** | Architecture: GRPO loop, Megatron stack, Primus role, vLLM changes |
+| `README.md` | Quick start and file index |
+
 ## Quick vLLM smoke (no Ray)
 
 ```bash
