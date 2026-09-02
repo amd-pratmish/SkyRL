@@ -17,7 +17,7 @@
 - Add `integrations/rocm_amd/` with install scripts, smoke tests, Docker recipe, and GSM8K example (`run_gsm8k_megatron_rocm.sh`).
 - Patch SkyRL for **vLLM 0.20** API moves, **Ray 2.57** scheduling/collective imports, and **ROCm** device/runtime defaults (HIP env, `VLLM_USE_V1=0`, weight-sync RPC name clash).
 
-Validated: colocated Megatron GRPO on 2 MI355X-class GPUs (Qwen2.5-0.5B, GSM8K subset)—rollout, NCCL weight sync, policy update.
+Validated: colocated Megatron GRPO on 2 MI355X-class GPUs (Qwen2.5-0.5B, GSM8K subset)—rollout, collective-based (RCCL/NCCL) weight-sync, policy update.
 
 ---
 
@@ -62,23 +62,4 @@ Megatron pins: megatron-core `71e418ea…`, megatron-bridge `91a15142…` (see `
 - [ ] `bash integrations/rocm_amd/validate_megatron_rocm.sh`
 - [ ] `bash integrations/rocm_amd/run_smoke_test.sh`
 - [ ] `bash examples/train/gsm8k/run_gsm8k_megatron_rocm.sh` (2 GPUs, `NUM_GPUS=2`)
-- [ ] Confirm training loop: vLLM generate → NCCL weight sync → Megatron policy step
-- [ ] CUDA regression: existing Megatron + vLLM tests on NVIDIA still pass
-
----
-
-## Notes for reviewers
-
-- **No Primus training framework integration** — only Megatron-Bridge + SkyRL `megatron_worker` on a ROCm runtime image.
-- **Weight sync** uses `weight_sync_backend=nccl`; RCCL implements the NCCL API on ROCm.
-- **vLLM v1 engine** disabled by default on ROCm (`VLLM_USE_V1=0`); sync `LLM` + `async_engine=false` for colocated GRPO.
-- vLLM wheel is **not** vendored in git; cache lives under `integrations/rocm_amd/.vllm_rocm_cache/` (gitignored).
-
----
-
-## Follow-ups (out of scope for initial PR)
-
-- CI on AMD hardware (or self-hosted workflow)
-- FSDP path on ROCm
-- vLLM v1 engine on ROCm when stable for colocated training
-- Documented support matrix (MI300X / MI325X / MI355X + ROCm versions)
+- [ ] Confirm training loop: vLLM generate → collective-based (RCCL/NCCL) weight-sync → Megatron policy step
