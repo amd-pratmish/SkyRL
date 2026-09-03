@@ -15,10 +15,13 @@ import torch
 from loguru import logger
 from ray.util.placement_group import (
     PlacementGroup,
-    PlacementGroupSchedulingStrategy,
     placement_group,
     placement_group_table,
 )
+try:
+    from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+except ImportError:
+    from ray.util.placement_group import PlacementGroupSchedulingStrategy
 
 from skyrl.env_vars import (
     _SKYRL_USE_NEW_INFERENCE,
@@ -650,11 +653,32 @@ def prepare_runtime_environment(cfg: SkyRLTrainConfig) -> dict[str, str]:
         # TileLang default (works on Hopper); export FLA_TILELANG=0 on Blackwell (B200),
         # where the TileLang packed backward aborts, to fall back to the Triton kernels.
         env_vars["FLA_TILELANG"] = os.environ.get("FLA_TILELANG", "1")
-        if cfg.trainer.flash_attn:
+        # CUDA-only: disabling fused TE attention. On ROCm/HIP this breaks Megatron-Bridge
+        # model materialize (NVTE_FLASH_ATTN assertion). Skip on AMD.
+        _on_rocm = False
+        try:
+            import torch
+
+            _on_rocm = getattr(torch.version, "hip", None) is not None
+        except ImportError:
+            pass
+        if cfg.trainer.flash_attn and not _on_rocm:
             # disable fused attention for megatron with flash_attn
             # (otherwise flash_attn choice is overridden in TransformerEngine for Hopper+ devices)
             # https://github.com/NVIDIA/TransformerEngine/blob/release_v2.5/transformer_engine/pytorch/attention/dot_product_attention/utils.py#L916
             env_vars["NVTE_FUSED_ATTN"] = "0"
+        if _on_rocm:
+            env_vars.setdefault("NVTE_USE_ROCM", "1")
+            env_vars.setdefault("NVTE_USE_HIPBLASLT", "1")
+
+    try:
+        import torch as _torch
+
+        if getattr(_torch.version, "hip", None) is not None:
+            env_vars.setdefault("VLLM_TARGET_DEVICE", "rocm")
+            env_vars.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+    except ImportError:
+        pass
 
     if cfg.generator.inference_engine.backend == "vllm":
         env_vars["VLLM_ALLOW_RUNTIME_LORA_UPDATING"] = "true"
@@ -672,11 +696,25 @@ def prepare_runtime_environment(cfg: SkyRLTrainConfig) -> dict[str, str]:
         env_vars["VLLM_DISABLE_COMPILE_CACHE"] = "1"
 
         if not os.environ.get("VLLM_USE_V1", False):
-            logger.info(
-                "`VLLM_USE_V1` is not specified, setting `VLLM_USE_V1` to 1. To override, set `VLLM_USE_V1` explicitly"
-            )
-            env_vars["VLLM_USE_V1"] = "1"
-            env_vars["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
+            _on_rocm_vllm = False
+            try:
+                import torch as _torch_vllm
+
+                _on_rocm_vllm = getattr(_torch_vllm.version, "hip", None) is not None
+            except ImportError:
+                pass
+            if _on_rocm_vllm:
+                logger.info(
+                    "ROCm: `VLLM_USE_V1` is not specified, setting `VLLM_USE_V1` to 0 "
+                    "(v1 multiprocess engine core is unstable on ROCm in colocated GRPO)."
+                )
+                env_vars["VLLM_USE_V1"] = "0"
+            else:
+                logger.info(
+                    "`VLLM_USE_V1` is not specified, setting `VLLM_USE_V1` to 1. To override, set `VLLM_USE_V1` explicitly"
+                )
+                env_vars["VLLM_USE_V1"] = "1"
+                env_vars["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
 
         if os.environ.get("VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS"):
             logger.info(
@@ -794,6 +832,19 @@ def configure_ray_worker_logging() -> None:
     logging.root.setLevel(level)
 
 
+def get_ray_init_num_gpus(cfg: SkyRLTrainConfig) -> int:
+    """GPU count for ray.init when auto-detection fails (common in ROCm Docker)."""
+    if os.environ.get("NUM_GPUS"):
+        return int(os.environ["NUM_GPUS"])
+    placement = cfg.trainer.placement
+    return max(
+        placement.policy_num_gpus_per_node * placement.policy_num_nodes,
+        placement.ref_num_gpus_per_node * placement.ref_num_nodes,
+        placement.critic_num_gpus_per_node * placement.critic_num_nodes,
+        1,
+    )
+
+
 def initialize_ray(cfg: SkyRLTrainConfig):
     """
     Initialize Ray cluster with prepared runtime environment.
@@ -824,7 +875,9 @@ def initialize_ray(cfg: SkyRLTrainConfig):
 
     # log_to_driver=True allows training progress from skyrl_entrypoint to reach stdout.
     # Infrastructure logs (vLLM, workers) are redirected to log file via os.dup2 in their init.
-    ray.init(runtime_env={"env_vars": env_vars}, log_to_driver=True)
+    num_gpus = get_ray_init_num_gpus(cfg)
+    ray.init(num_gpus=num_gpus, runtime_env={"env_vars": env_vars}, log_to_driver=True)
+    logger.info(f"Ray initialized with num_gpus={num_gpus}, resources={ray.cluster_resources()}")
 
     if not verbose_logging:
         logger.info(f"Infrastructure logs will be written to: {log_file}")
@@ -998,7 +1051,7 @@ def peer_access_supported(max_num_gpus_per_node: int):
 
     if not torch.cuda.is_available():
         # we are on cpu head node, so we need to check P2P access on a node with 2 GPUs
-        ray.init()
+        ray.init(num_gpus=max_num_gpus_per_node)
         pg = placement_group([{"CPU": 1, "GPU": 2}], strategy="PACK")
         get_ray_pg_ready_with_timeout(pg, timeout=SKYRL_RAY_PG_TIMEOUT_IN_S)
         result = ray.get(
