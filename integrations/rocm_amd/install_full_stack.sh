@@ -8,6 +8,16 @@ WHEEL_CACHE="${SKYRL_ROOT}/integrations/rocm_amd/.vllm_rocm_cache/wheels"
 
 bash "${SCRIPT_DIR}/install_megatron_bridge.sh"
 
+if python3 -c "import torch; print(torch.cuda.is_available())" 2>/dev/null | grep -q True; then
+  echo "--- verify supported Instinct GPU (MI300X/MI325X/MI350X/MI355X) ---"
+  python3 "${SCRIPT_DIR}/gpu_support.py" || {
+    echo "WARN: GPU not supported or not detected; see integrations/rocm_amd/README.md#supported-gpus"
+    exit 1
+  }
+else
+  echo "SKIP: no visible GPU during install (OK for image build without devices)"
+fi
+
 echo "--- install vLLM (ROCm, SkyRL 0.20.x API) ---"
 WHEEL=""
 if compgen -G "${WHEEL_CACHE}/vllm-0.20*.whl" >/dev/null; then

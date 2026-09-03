@@ -8,6 +8,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# CDNA4 (MI350X/MI355X): rocm/primus:v26.4. CDNA3 (MI300X/MI325X): use a gfx942 ROCm PyTorch image.
 ROCM_IMAGE="${ROCM_IMAGE:-rocm/primus:v26.4}"
 BUILDER="${BUILDER:-docker}"
 

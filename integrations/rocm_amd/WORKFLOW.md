@@ -66,7 +66,11 @@ Install Megatron-Bridge with `--no-deps` + `nvidia-modelopt`. Remove legacy `Meg
 
 ## Runtime environment
 
-Use a ROCm PyTorch image whose **GPU ISA matches your hardware** (e.g. gfx950 for MI355X). A commonly tested base is `rocm/primus:v26.4` (ROCm torch + Transformer Engine). Equivalent images work if you rebuild vLLM against the same torch ABI.
+Supported Instinct GPUs: **MI300X**, **MI325X** (`gfx942`, CDNA3) and **MI350X**, **MI355X** (`gfx950`, CDNA4).
+
+Use a ROCm PyTorch image whose **GPU ISA matches your hardware**. A commonly tested CDNA4 base is `rocm/primus:v26.4`; for MI300X/MI325X use a CDNA3 (`gfx942`) ROCm PyTorch image. Equivalent images work if you rebuild vLLM against the same torch ABI.
+
+Run `python3 integrations/rocm_amd/gpu_support.py` on the target node before GRPO.
 
 Do not substitute arbitrary third-party vLLM images without rebuilding vLLM against that exact torch — `vllm._C` ABI mismatches are common.
 

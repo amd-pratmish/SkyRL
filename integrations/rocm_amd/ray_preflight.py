@@ -3,12 +3,24 @@
 import os
 import sys
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+from gpu_support import detect_gpu_info  # noqa: E402
+
 import ray
 from ray.util.placement_group import placement_group
 
 
 def main() -> int:
     num_gpus = int(os.environ.get("NUM_GPUS", "1"))
+    gpu_info = detect_gpu_info()
+    print(f"gpu_support: {gpu_info.detail}")
+    if not gpu_info.supported:
+        print(f"FAIL: {gpu_info.detail}")
+        print("Supported: MI300X, MI325X (gfx942), MI350X, MI355X (gfx950)")
+        return 1
     print(f"HIP_VISIBLE_DEVICES={os.environ.get('HIP_VISIBLE_DEVICES')}")
     print(f"ROCR_VISIBLE_DEVICES={os.environ.get('ROCR_VISIBLE_DEVICES')}")
 

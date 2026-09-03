@@ -1,6 +1,8 @@
 # SkyRL on AMD ROCm GPUs
 
-Run SkyRL **Megatron training** (`trainer.strategy=megatron`) and **vLLM inference** on AMD Instinct GPUs (MI300X / MI325X / MI355X).
+Run SkyRL **Megatron training** (`trainer.strategy=megatron`) and **vLLM inference** on AMD Instinct GPUs:
+
+**MI300X**, **MI325X** (CDNA3, `gfx942`) · **MI350X**, **MI355X** (CDNA4, `gfx950`)
 
 Uses the existing SkyRL `megatron_worker` + NVIDIA Megatron-Bridge on ROCm—no separate training backend.
 
@@ -11,13 +13,39 @@ Uses the existing SkyRL `megatron_worker` + NVIDIA Megatron-Bridge on ROCm—no 
 
 ---
 
+## Supported GPUs
+
+| GPU | Architecture | LLVM target | Notes |
+|-----|--------------|-------------|-------|
+| MI300X | CDNA3 | `gfx942` | Use a ROCm PyTorch image built for CDNA3 |
+| MI325X | CDNA3 | `gfx942` | Same ISA as MI300X |
+| MI350X | CDNA4 | `gfx950` | Same ISA as MI355X |
+| MI355X | CDNA4 | `gfx950` | Validated end-to-end in integration smoke |
+
+Check detection on your node:
+
+```bash
+python3 integrations/rocm_amd/gpu_support.py
+```
+
+`build_vllm_rocm.sh` defaults to `PYTORCH_ROCM_ARCH=gfx942;gfx950` so one vLLM wheel covers all supported Instinct GPUs. Your **base container image** must still ship PyTorch/TE built for the GPU you are running on—mismatched torch ISA causes `register fat binary failed` at runtime.
+
+**Base image hints**
+
+| GPU family | Example base images |
+|------------|---------------------|
+| MI300X / MI325X | ROCm PyTorch images targeting `gfx942` (CDNA3) |
+| MI350X / MI355X | `rocm/primus:v26.4` or other `gfx950` ROCm stacks |
+
+Override at launch: `ROCM_IMAGE=your-image bash integrations/rocm_amd/run_in_container.sh`
+
+---
+
 ## Requirements
 
-- AMD Instinct GPU with ROCm (MI300X class or newer recommended)
+- AMD Instinct GPU from the table above
 - Docker or Podman with `/dev/kfd` and `/dev/dri` access
-- Base image with ROCm PyTorch + Transformer Engine, e.g. **`rocm/primus:v26.4`**
-
-The GPU architecture in the image must match your hardware (e.g. gfx950 for MI355X). Mismatched ROCm ISA builds can fail at runtime with `register fat binary failed`.
+- ROCm PyTorch + Transformer Engine base image matching your GPU ISA
 
 ---
 
@@ -88,7 +116,8 @@ bash integrations/rocm_amd/run_smoke_test.sh
 | `build_vllm_rocm.sh` | Build vLLM from source on container torch |
 | `verify_vllm_skyrl_compat.py` | Check vLLM 0.20 API imports used by SkyRL |
 | `validate_megatron_rocm.sh` | Single-GPU Megatron-Bridge validation |
-| `ray_preflight.sh` | Ray GPU visibility + placement group check |
+| `ray_preflight.sh` | Ray GPU visibility + supported Instinct GPU check |
+| `gpu_support.py` | Detect MI300X/MI325X/MI350X/MI355X and gfx ISA |
 | `vllm_llm_smoke.sh` | Single-GPU vLLM `LLM` init (no Ray) |
 
 ---

@@ -2,10 +2,13 @@
 # Build vLLM from source against the container's ROCm PyTorch (do NOT pip install vllm — it pulls CUDA torch).
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=gpu_support.sh
+source "${SCRIPT_DIR}/gpu_support.sh"
+
 # SkyRL pins vllm==0.20.2 API; build vLLM main (v0.20.2 tag fails GPTQ compile on ROCm 7.14).
 VLLM_TAG="${VLLM_TAG:-main}"
 VLLM_SRC="${VLLM_SRC:-/tmp/vllm-rocm-build-${VLLM_TAG}}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKYRL_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 VERIFY_PY="${SKYRL_ROOT}/integrations/rocm_amd/verify_vllm_skyrl_compat.py"
 CACHE_WHEEL_DIR="${SKYRL_ROOT}/integrations/rocm_amd/.vllm_rocm_cache/wheels"
@@ -38,8 +41,9 @@ print('vllm', vllm.__version__, 'native_exts', len(so))
 fi
 
 export VLLM_TARGET_DEVICE=rocm
-# MI355X = gfx950 (cdna4); include gfx942 for compatibility.
-export PYTORCH_ROCM_ARCH="${PYTORCH_ROCM_ARCH:-gfx950;gfx942}"
+# MI300X/MI325X = gfx942 (CDNA3); MI350X/MI355X = gfx950 (CDNA4). Default builds both.
+export PYTORCH_ROCM_ARCH="${PYTORCH_ROCM_ARCH}"
+echo "PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}"
 export MAX_JOBS="${MAX_JOBS:-16}"
 export SETUPTOOLS_SCM_PRETEND_VERSION="${SETUPTOOLS_SCM_PRETEND_VERSION:-0.20.2+rocm.rocm714}"
 

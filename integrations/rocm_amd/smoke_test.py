@@ -19,6 +19,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+
 # Some ROCm base images ship legacy Megatron-LM on PYTHONPATH.
 def _bootstrap_megatron_paths() -> None:
     candidates = [
@@ -100,6 +104,14 @@ def phase_env(report: SmokeReport) -> None:
 
     _run_check(report, "env", "torch_rocm", torch_hip)
     _run_check(report, "env", "ray", ray)
+
+    def gpu_support() -> tuple[bool, str]:
+        from gpu_support import detect_gpu_info
+
+        info = detect_gpu_info()
+        return info.supported, info.detail
+
+    _run_check(report, "env", "gpu_support", gpu_support)
 
 
 def phase_megatron_core(report: SmokeReport) -> None:

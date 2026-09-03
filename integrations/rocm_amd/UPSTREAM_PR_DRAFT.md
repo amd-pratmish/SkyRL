@@ -17,7 +17,7 @@
 - Add `integrations/rocm_amd/` with install scripts, smoke tests, Docker recipe, and GSM8K example (`run_gsm8k_megatron_rocm.sh`).
 - Patch SkyRL for **vLLM 0.20** API moves, **Ray 2.57** scheduling/collective imports, and **ROCm** device/runtime defaults (HIP env, `VLLM_USE_V1=0`, weight-sync RPC name clash).
 
-Validated: colocated Megatron GRPO on 2 MI355X-class GPUs (Qwen2.5-0.5B, GSM8K subset)—rollout, collective-based (RCCL/NCCL) weight-sync, policy update.
+Validated: colocated Megatron GRPO on 2 MI355X GPUs (Qwen2.5-0.5B, GSM8K subset)—rollout, collective-based (RCCL/NCCL) weight-sync, policy update. Integration targets MI300X, MI325X, MI350X, and MI355X (`gfx942` / `gfx950`).
 
 ---
 
@@ -47,9 +47,9 @@ Validated: colocated Megatron GRPO on 2 MI355X-class GPUs (Qwen2.5-0.5B, GSM8K s
 
 ## Requirements for users
 
-- AMD Instinct GPU + ROCm Docker/Podman (`/dev/kfd`, `/dev/dri`)
-- Base image with ROCm PyTorch + TE (e.g. `rocm/primus:v26.4`) matching GPU architecture
-- vLLM **built from source** on that torch (`build_vllm_rocm.sh`) — PyPI `vllm` pulls CUDA torch
+- AMD Instinct GPU: MI300X, MI325X (`gfx942`), MI350X, or MI355X (`gfx950`)
+- ROCm Docker/Podman (`/dev/kfd`, `/dev/dri`) with a base image whose PyTorch build matches your GPU ISA
+- vLLM **built from source** on that torch (`build_vllm_rocm.sh`, default `PYTORCH_ROCM_ARCH=gfx942;gfx950`) — PyPI `vllm` pulls CUDA torch
 
 Megatron pins: megatron-core `71e418ea…`, megatron-bridge `91a15142…` (see `install_megatron_bridge.sh`).
 
@@ -58,6 +58,7 @@ Megatron pins: megatron-core `71e418ea…`, megatron-bridge `91a15142…` (see `
 ## Test plan
 
 - [ ] `bash integrations/rocm_amd/run_in_container.sh`
+- [ ] `python3 integrations/rocm_amd/gpu_support.py` (MI300X / MI325X / MI350X / MI355X)
 - [ ] `bash integrations/rocm_amd/install_full_stack.sh`
 - [ ] `bash integrations/rocm_amd/validate_megatron_rocm.sh`
 - [ ] `bash integrations/rocm_amd/run_smoke_test.sh`
