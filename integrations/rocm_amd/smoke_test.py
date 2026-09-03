@@ -212,6 +212,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Run one or more phases (repeat flag). Default: all",
     )
+    parser.add_argument("--all", action="store_true", help="Run all phases (alias for --phase all)")
     parser.add_argument("--model", default=None, help="HF model for megatron-bridge from_hf test")
     parser.add_argument("--report", default=None, help="Write JSON report to this path")
     return parser.parse_args()
@@ -231,7 +232,7 @@ def main() -> int:
         "vllm": lambda: phase_vllm(report),
     }
 
-    if not args.phase or args.phase == ["all"]:
+    if args.all or not args.phase or args.phase == ["all"]:
         selected = list(phases.keys())
     else:
         selected = args.phase
