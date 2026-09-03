@@ -17,7 +17,22 @@
 - Add `integrations/rocm_amd/` with install scripts, smoke tests, Docker recipe, and GSM8K example (`run_gsm8k_megatron_rocm.sh`).
 - Patch SkyRL for **vLLM 0.20** API moves, **Ray 2.57** scheduling/collective imports, and **ROCm** device/runtime defaults (HIP env, `VLLM_USE_V1=0`, weight-sync RPC name clash).
 
-Validated: colocated Megatron GRPO on 2 MI355X GPUs (Qwen2.5-0.5B, GSM8K subset)—rollout, collective-based (RCCL/NCCL) weight-sync, policy update. Integration targets MI300X, MI325X, MI350X, and MI355X (`gfx942` / `gfx950`).
+Validated: colocated Megatron GRPO on 2 **MI355X** GPUs (Qwen2.5-0.5B, GSM8K subset)—rollout, collective-based (RCCL/NCCL) weight-sync, policy update (4 training steps). See support matrix below.
+
+---
+
+## Supported GPUs
+
+| GPU | Architecture | LLVM target | Status |
+|-----|--------------|-------------|--------|
+| MI300X | CDNA3 | `gfx942` | Supported — use a ROCm PyTorch base image built for CDNA3 |
+| MI325X | CDNA3 | `gfx942` | Supported — same ISA as MI300X |
+| MI350X | CDNA4 | `gfx950` | Supported — same ISA as MI355X |
+| MI355X | CDNA4 | `gfx950` | **Validated** — full integration + 2-GPU Megatron GRPO smoke |
+
+Detect GPU on your node: `python3 integrations/rocm_amd/gpu_support.py`
+
+`build_vllm_rocm.sh` defaults to `PYTORCH_ROCM_ARCH=gfx942;gfx950` (one wheel for all supported Instinct GPUs). The **base container image** must still match your GPU ISA (e.g. `rocm/primus:v26.4` for MI350X/MI355X).
 
 ---
 
@@ -47,7 +62,7 @@ Validated: colocated Megatron GRPO on 2 MI355X GPUs (Qwen2.5-0.5B, GSM8K subset)
 
 ## Requirements for users
 
-- AMD Instinct GPU: MI300X, MI325X (`gfx942`), MI350X, or MI355X (`gfx950`)
+- AMD Instinct GPU from the support matrix above
 - ROCm Docker/Podman (`/dev/kfd`, `/dev/dri`) with a base image whose PyTorch build matches your GPU ISA
 - vLLM **built from source** on that torch (`build_vllm_rocm.sh`, default `PYTORCH_ROCM_ARCH=gfx942;gfx950`) — PyPI `vllm` pulls CUDA torch
 
