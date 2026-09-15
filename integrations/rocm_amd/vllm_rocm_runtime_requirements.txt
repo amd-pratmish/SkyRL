@@ -25,3 +25,4 @@ lm-format-enforcer==0.11.3
 lark==1.2.2
 ijson==3.5.1
 amdsmi
+uvloop
