@@ -347,11 +347,24 @@ def create_ray_wrapped_inference_engines(
                 remote_kwargs.update(mp_kwargs)
                 if "enable_sleep_mode" in remote_kwargs:
                     inference_engine_enable_sleep = bool(remote_kwargs["enable_sleep_mode"])
+                actor_runtime_env = engine_runtime_env
+                # HIP: pin visible devices before the actor imports torch/vLLM.
+                # Changing HIP/CUDA_VISIBLE_DEVICES after `import torch` does not
+                # retarget profiling, so colocated engines would share one card.
+                if extra_engine_env is not None:
+                    vis = ",".join(
+                        str(int(shared_pg.bundle_gpu_ids[logical_dp_base + k])) for k in range(tp_pp_size)
+                    )
+                    env_vars = dict((engine_runtime_env or {}).get("env_vars", {}))
+                    env_vars["HIP_VISIBLE_DEVICES"] = vis
+                    env_vars["ROCR_VISIBLE_DEVICES"] = vis
+                    env_vars["CUDA_VISIBLE_DEVICES"] = vis
+                    actor_runtime_env = {"env_vars": env_vars}
                 engine = actor_class.options(
                     num_cpus=num_gpus_per_actor,
                     num_gpus=num_gpus_per_actor,
                     scheduling_strategy=dp_rank_sched,
-                    runtime_env=engine_runtime_env,
+                    runtime_env=actor_runtime_env,
                 ).remote(**remote_kwargs)
                 inference_engine_actors.append(engine)
 
